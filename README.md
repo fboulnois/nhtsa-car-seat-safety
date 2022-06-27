@@ -27,6 +27,13 @@ The car seat data was analyzed in a few different dimensions:
     category
 -   Which travel system car seats have the highest score
 
+A few organizations also perform independent testing of car seats that
+meet or exceed the NHTSA standards:
+
+-   [BabyGearLab](https://www.babygearlab.com/t/car-seats)
+-   [Consumer
+    Reports](https://www.consumerreports.org/cro/car-seats.htm)
+
 ## Methods
 
 ### Data preparation
