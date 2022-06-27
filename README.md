@@ -102,7 +102,7 @@ fwrite(dt, csv)
 The ratings are mainly clustered around a score of 3.29, with some below
 average ratings and only a few high ratings.
 
-![](README_files/figure-gfm/score-distribution-1.png)<!-- -->
+![distribution of geometric scores](README_files/figure-gfm/score-distribution-1.png)<!-- -->
 
 ### Highest scoring car seats
 
