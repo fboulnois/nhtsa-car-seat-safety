@@ -1,0 +1,240 @@
+---
+title: "Which certified infant and child car seats are the safest?"
+author: "fboulnois"
+date: '2022-06-26'
+output: rmarkdown::github_document
+knit: (function(inputFile, encoding) { rmarkdown::render(inputFile, encoding = encoding, output_file = file.path(dirname(inputFile), 'README.md')) })
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(data.table)
+library(jsonlite)
+library(curl)
+
+# load json from nhtsa api
+load_from_api <- function(url) {
+  results <- list()
+  while(!is.null(url)) {
+    response <- curl_fetch_memory(url, handle = new_handle())
+    if(response$status_code != 200) {
+      stop("Error reading nhtsa api")
+    }
+    json <- fromJSON(readBin(response$content, character()))
+    url <- json$meta$pagination$nextUrl
+    results <- append(results, list(json$result))
+  }
+  rbindlist(results)
+}
+
+# load the file cache, otherwise download from api
+load_from_cache <- function(file, url) {
+  if(file.exists(file)) {
+    df <- fromJSON(file)
+  } else {
+    df <- load_from_api(url)
+    write(toJSON(df, na = "null", pretty = 2), file=file)
+  }
+  df
+}
+
+# recursively expand rows that have lists of data.frames
+expand <- function(df) {
+  dt <- as.data.table(df)
+  if(any(vapply(dt, is.list, logical(1)))) {
+    dt <- rbindlist(apply(dt, 1, expand), fill = TRUE)
+  }
+  dt
+}
+
+# add columns to simplify notes and to count and group modes
+add_cols <- function(dt) {
+  dt[, modes.ratings.notes := paste0(na.omit(modes.ratings.notes), collapse = "\n"), by = id]
+  dt[, modes.count := length(unique(modes.mode)), by = id]
+  dt[, grp := .GRP, by = .(id, modes.mode)]
+}
+
+# reorder columns so that they are id, grp, ..., modes.mode, modes.count, ...
+reorder_cols <- function(dt) {
+  cols <- colnames(dt)
+  b1 <- cols == "id" | cols == "grp"
+  b2 <- cols == "modes.mode"
+  b3 <- cols == "modes.count"
+  b4 <- seq_along(cols) < which(b2) & !b1 & !b3
+  b5 <- seq_along(cols) > which(b2) & !b1 & !b3
+  newcols <- c(cols[b1], cols[b4], cols[b2], cols[b3], cols[b5])
+  setcolorder(dt, newcols)
+}
+
+# add and reorder columns
+modify_cols <- function(dt) {
+  reorder_cols(add_cols(dt))
+}
+```
+
+## Summary
+
+Many infant and child car seats are available on Amazon, but which are truly
+safe? The [National Highway Traffic Safety Administration](https://www.nhtsa.gov)
+has a [Car Seat Finder tool](https://www.nhtsa.gov/equipment/car-seats-and-booster-seats)
+but unfortunately it is difficult to compare and contrast car seats across
+brands, features, and ratings.
+
+To investigate in more detail I downloaded the raw NHTSA car seat data and
+analyzed it using R. I was also interested in highly rated car seats that are
+part of travel systems. These travel systems usually have a stroller and infant
+car seat combo but these seats are almost never convertible / multifunction. I
+cross-referenced the seat model of the most popular travel systems with the
+NHTSA data.
+
+The car seat data was analyzed in a few different dimensions:
+
+-   Which car seats have the highest combined rating by geometric score
+-   Which convertible (multifunction) car seats have the highest score
+-   Which convertible car seats have an overall rating of 5 in any category
+-   Which travel system car seats have the highest score
+
+## Methods
+
+### Data preparation
+
+To keep this section short, the code which downloads and cleans the data has
+been hidden, however it can be viewed as part of the raw `.Rmd` file that
+produced this analysis.
+
+Concisely, the NHTSA has a child seat [API](https://en.wikipedia.org/wiki/API)
+which returns [JSON](https://en.wikipedia.org/wiki/JSON). Because that JSON has
+a highly nested structure it is expanded into separate rows. To help with the
+analysis, a few columns of data are added and some columns are reordered.
+
+To avoid having to download the data every time, the data is loaded from a file
+if it exists otherwise it downloads the data from the API.
+
+```{r prepare}
+url <- "https://api.nhtsa.gov/childSeats?offset=0&max=100&sort=make&order=asc&data=modes&dataSet=ratings"
+json <- "car-seat-results.json"
+csv <- "car-seat-results.csv"
+
+raw <- modify_cols(expand(load_from_cache(json, url)))
+```
+
+### Data analysis
+
+The NHTSA rates car seats across several categories:
+
+```{r rating-type}
+raw[, unique(modes.ratings.type)]
+```
+
+For each rating category, the seats are given numerical values from 1 to 5
+where 5 corresponds to 5 stars (i.e. the highest / best rating):
+
+```{r rating-num}
+raw[, range(modes.ratings.rating, na.rm = TRUE)]
+```
+
+Powerful transformations are easy to do once the data is in a `data.table`
+format. Since each rating category is different and could have different ranges,
+the [geometric mean](https://en.wikipedia.org/wiki/Geometric_mean) is used to
+calculate a single global average score for each car seat instead of the
+arithmetic mean. The `OverallRating` column is also used in this calculation as
+it does not seem to be an average of the other ratings but is instead the NHTSA
+reviewer's overall rating of the car seat. Next, the table is converted from
+long to wide format to pull out the ratings into their own columns, the rows are
+ordered by highest geometric score first, and a final csv file is created.
+
+```{r geom-score}
+raw[, geom.score := exp(mean(log(modes.ratings.rating))), by = id]
+
+dt <- dcast(raw, id + modes.mode + ... ~ modes.ratings.type, value.var = "modes.ratings.rating")
+setorder(dt, -geom.score, na.last = TRUE)
+
+fwrite(dt, csv)
+```
+
+## Results
+
+### Distribution of scores
+
+The ratings are mainly clustered around a score of
+`r dt[, round(median(geom.score, na.rm = TRUE), 2)]`, with some below average
+ratings and only a few high ratings.
+
+```{r score-distribution, echo=FALSE, results='asis'}
+hist(dt[, geom.score], breaks = 15, main = "Distribution of geometric scores", xlab = "Score")
+```
+
+### Highest scoring car seats
+
+The highest rated car seats in all categories by geometric score are as follows:
+
+```{r highest-scoring-seats, echo=1, results='asis'}
+res <- dt[geom.score > 4.5, .(make, productModel, seatType, geom.score)]
+knitr::kable(res)
+```
+
+The brands GB, Doona, Cybex, Britax, and Graco top the list of the highest rated
+car seats.
+
+### Highest scoring convertible car seats
+
+The highest rated convertible car seats by geometric scores are as follows:
+
+```{r highest-scoring-multi-seats, echo=1, results='asis'}
+res <- unique(dt[modes.count == 3 & geom.score > 3.5, .(make, productModel, seatType, geom.score)])
+knitr::kable(res)
+```
+
+Some of the most popular convertible car seats appear in this list, including
+the 4Ever DLX and Grows4Me by Graco, the One4Life by Britax, the City View by
+Baby Jogger, and the EveryStage by EvenFlo.
+
+### Highest 5-star rated convertible car seats
+
+The highest rated convertible car seats with an overall rating of 5 in at least
+one category are as follows:
+
+```{r highest-scoring-5-star-multi-seats, echo=1, results='asis'}
+res <- dt[modes.count == 3 & OverallRating == 5, .(make, productModel, seatType, geom.score)]
+knitr::kable(res)
+```
+
+The Graco 4Ever DLX, Britax One4Life Clicktight, and Evenflo EveryFit top the
+list for highest 5-star rated convertible car seats.
+
+### Highest scoring travel system car seats
+
+I manually compiled a list of the most popular travel systems and their car
+seats from a couple of review sites and Amazon:
+
+```{r highest-scoring-travel-system-seats, echo=FALSE, results='asis'}
+tt <- data.table(
+  brand = c("Chicco", "Evenflo", "Nuna", "Graco", "Baby Trend", "Britax", "UPPAbaby", "Baby Jogger", "Safety 1st", "Evenflo", "Graco", "Doona", "Century", "Maxi-Cosi"),
+  travel.system = c("Bravo Trio", "Pivot", "TAVO", "Modes", "Expedition Jogger", "B-Free & B-Safe Gen2", "MESA", "City Mini GT2", "Smooth Ride", "Urbini Omni Plus", "FastAction Fold Sport Click Connect", "Car Seat & Stroller", "Stroll On", "Zelia Max 5-in-1"),
+  seat.name = c("Keyfit 30 Magic", "SafeMax Infant Seat", "Pipa Lite LX", "Snugride Snuglock 35", "EZ Flex-Loc", "B-Safe Gen 2", "MESA", "City Go 2", "onBoard 35 Air 360", "LiteMax 35", "Snugride 35 Click Connect", "Infant Seat", "Carry On 35", "Mico Max Plus")
+)
+knitr::kable(tt)
+```
+
+Next this table is combined with the NHTSA data to get a final list of the
+highest scoring travel system car seats:
+
+```{r highest-scoring-travel-system-seats-combined, echo=1:3, results='asis'}
+res <- merge(dt, tt, by.x = c("make", "productModel"), by.y = c("brand", "seat.name"))
+res <- res[, .(make, travel.system, productModel, seatType, geom.score)]
+setorder(res, -geom.score, na.last = TRUE)
+knitr::kable(res)
+```
+
+Unsurprisingly, all of these travel systems only have infant car seats. The
+three highest scoring travel systems are the Britax B-Free & B-Safe Gen 2 travel
+system, the Doona Car Seat & Stroller, and the Baby Jogger City Mini GT2 with
+the City Go 2 car seat.
+
+## Conclusion
+
+Many infant and child seats are available for purchase, but only a few are
+highly rated by the NHTSA individually, as a convertible car seat, and as part
+of a travel system.
+
+Hopefully this analysis helps your family make the right decision!
