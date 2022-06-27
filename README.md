@@ -48,7 +48,6 @@ a file if it exists otherwise it downloads the data from the API.
 ``` r
 url <- "https://api.nhtsa.gov/childSeats?offset=0&max=100&sort=make&order=asc&data=modes&dataSet=ratings"
 json <- "car-seat-results.json"
-csv <- "car-seat-results.csv"
 
 raw <- modify_cols(expand(load_from_cache(json, url)))
 ```
@@ -92,6 +91,7 @@ raw[, geom.score := exp(mean(log(modes.ratings.rating))), by = id]
 dt <- dcast(raw, id + modes.mode + ... ~ modes.ratings.type, value.var = "modes.ratings.rating")
 setorder(dt, -geom.score, na.last = TRUE)
 
+csv <- "car-seat-results.csv"
 fwrite(dt, csv)
 ```
 
