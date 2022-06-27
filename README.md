@@ -1,4 +1,4 @@
-Which certified infant and child car seats are the safest?
+Which certified infant and child car seats are the highest rated?
 ================
 fboulnois
 2022-06-26
