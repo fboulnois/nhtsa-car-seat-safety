@@ -229,4 +229,9 @@ Many infant and child seats are available for purchase, but only a few
 are highly rated by the NHTSA individually, as a convertible car seat,
 and as part of a travel system.
 
+All of the data used in the analysis is available in this repository.
+The raw data is stored in
+[`car-seat-results.json`](car-seat-results.json), and the final data is
+stored in [`car-seat-results.csv`](car-seat-results.csv).
+
 Hopefully this analysis helps your family make the right decision!
