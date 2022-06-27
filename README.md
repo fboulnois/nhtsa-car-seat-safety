@@ -1,4 +1,4 @@
-Which certified infant and child car seats are the highest rated?
+Which child car seats does the NHTSA rate highly?
 ================
 fboulnois
 2022-06-26
